@@ -3,6 +3,8 @@ import Foundation
 enum AppContextServiceTests {
     static func run() {
         testScreenshotFallbackRejectsWindowsFromOtherProcesses()
+        testScreenshotMatchingCannotCrossProcessBoundary()
+        testScreenshotSelectionWithNoWindows()
         testScreenshotSelectionPrefersFocusedWindowBounds()
         testScreenshotSelectionUsesFocusedWindowTitleWhenBoundsAreUnavailable()
         testScreenshotFallbackUsesBestFrontmostProcessWindow()
@@ -30,6 +32,50 @@ enum AppContextServiceTests {
         )
 
         TestSupport.expectEqual(selectedWindowID, nil)
+    }
+
+    private static func testScreenshotMatchingCannotCrossProcessBoundary() {
+        let focusedBounds = CGRect(x: 100, y: 100, width: 600, height: 400)
+        let foreignWindow = ScreenshotWindowCandidate(
+            id: 9002,
+            processIdentifier: 84,
+            layer: 0,
+            bounds: focusedBounds,
+            title: "Synthetic focused document"
+        )
+        let ownedWindow = ScreenshotWindowCandidate(
+            id: 102,
+            processIdentifier: 42,
+            layer: 0,
+            bounds: CGRect(x: 900, y: 100, width: 400, height: 300),
+            title: "Synthetic other document"
+        )
+
+        // Exercise both bounds and title matching. A better match from another
+        // process must never win, even when it is the only candidate.
+        for bounds: CGRect? in [focusedBounds, nil] {
+            for candidates in [[foreignWindow], [foreignWindow, ownedWindow]] {
+                let selectedWindowID = AppContextService.screenshotWindowID(
+                    processIdentifier: 42,
+                    focusedWindowBounds: bounds,
+                    focusedWindowTitle: "Synthetic focused document",
+                    candidates: candidates
+                )
+                TestSupport.expectEqual(selectedWindowID, candidates.count == 1 ? nil : 102)
+            }
+        }
+    }
+
+    private static func testScreenshotSelectionWithNoWindows() {
+        TestSupport.expectEqual(
+            AppContextService.screenshotWindowID(
+                processIdentifier: 42,
+                focusedWindowBounds: nil,
+                focusedWindowTitle: nil,
+                candidates: []
+            ),
+            nil
+        )
     }
 
     private static func testScreenshotSelectionPrefersFocusedWindowBounds() {
